@@ -1,11 +1,9 @@
 from __future__ import division
 from math import sin, cos, acos, pi
 import numpy as np
-import tensorflow as tf
 import pymoo
 from tqdm.autonotebook import trange
 import matplotlib.pyplot as plt
-import tensorflow_addons as tfa
 import matplotlib.animation as animation
 from pymoo.model.problem import FunctionalProblem
 from pymoo.algorithms.nsga2 import NSGA2
