@@ -1,9 +1,11 @@
 from __future__ import division
 from math import sin, cos, acos, pi
 import numpy as np
+import tensorflow as tf
 import pymoo
 from tqdm.autonotebook import trange
 import matplotlib.pyplot as plt
+import tensorflow_addons as tfa
 import matplotlib.animation as animation
 from pymoo.model.problem import FunctionalProblem
 from pymoo.algorithms.nsga2 import NSGA2
@@ -386,7 +388,206 @@ class solver_cpu():
     def material(self,x0, C):
         G = self.get_G(x0,C)
         return np.sum(G[np.logical_not(np.isinf(G))])
+
+class mechanism_solver():
+    def __init__(self):
+        pass
     
+    def find_neighbors(self, index, C):
+        return np.where(C[index])[0]
+    
+    def find_unvisited_neighbors(self, index, C, visited_list):
+        return np.where(np.logical_and(C[index],np.logical_not(visited_list)))[0]
+    
+    def get_G(self, x0, C):
+        N = C.shape[0]
+        G = np.zeros_like(C, dtype=float)
+        for i in range(N):
+            for j in range(i):
+                if C[i,j]:
+                    G[i,j] = G[j,i] = np.linalg.norm(x0[i]-x0[j])
+                else:
+                    G[i,j] = G[j,i] = np.inf
+                    
+        return G
+    
+    def get_path(self, x0, C, G, motor, fixed_nodes=[0, 1], show_msg=False):
+        
+        theta = 0.0
+        
+        path = []
+        op = []
+        
+        N = C.shape[0]
+        x = np.zeros((N, 2))
+        visited_list = np.zeros(N, dtype=bool)
+        active_list = []
+        
+        visited_list[fixed_nodes] = True
+        visited_list[motor[1]] = True
+        
+        x[fixed_nodes] = x0[fixed_nodes]
+        
+        dx = x0[motor[1],0] - x0[motor[0],0]
+        dy = x0[motor[1],1] - x0[motor[0],1]
+        
+        theta_0 = np.math.atan2(dy,dx)
+        theta = theta_0 + theta
+        
+        x[motor[1], 0] = x[motor[0],0] + G[motor[0],motor[1]] * np.cos(theta)
+        x[motor[1], 1] = x[motor[0],1] + G[motor[0],motor[1]] * np.sin(theta)
+        
+        for i in np.where(visited_list)[0]:            
+            active_list += list(self.find_unvisited_neighbors(i, C, visited_list))
+            
+        active_list = list(set(active_list))
+        
+        counter = 0
+        
+        while len(active_list)>0:
+            k = active_list.pop(0)
+            neighbors = self.find_neighbors(k, C)
+            vn = neighbors[visited_list[neighbors]]
+            if vn.shape[0]>1:
+                if vn.shape[0]>2:
+                    if show_msg:
+                        print('Redudndant or overdefined system.')
+                    return None, -2
+                i = vn[0]
+                j = vn[1]
+                l_ij = np.linalg.norm(x[j]-x[i])
+                s = np.sign((x0[i,1]-x0[k,1])*(x0[i,0]-x0[j,0]) - (x0[i,1]-x0[j,1])*(x0[i,0]-x0[k,0]))
+                cosphi = (l_ij**2+G[i,k]**2-G[j,k]**2)/(2*l_ij*G[i,k])
+                if cosphi >= -1.0 and cosphi <= 1.0:
+                    phi = s * acos(cosphi)
+                    R = np.array([[cos(phi), -sin(phi)],
+                                  [sin(phi), cos(phi)]])
+                    scaled_ij = (x[j]-x[i])/l_ij * G[i,k]
+                    x[k] = np.matmul(R, scaled_ij.reshape(2,1)).flatten() + x[i]
+                    path.append(k)
+                    op.append([i,j,s])
+                else:
+                    if show_msg:
+                        print('Locking or degenerate linkage!')
+                    return None, -1
+                
+                visited_list[k] = True
+                active_list += list(self.find_unvisited_neighbors(k, C, visited_list))
+                active_list = list(set(active_list))
+                counter = 0
+            else:
+                counter += 1
+                active_list.append(k)
+            
+            if counter > len(active_list):
+                if show_msg:
+                    print('DOF larger than 1.')
+                return None, 0
+        return path, op
+    
+    def position_from_path(self, path, op, theta, x0, C, G, motor, fixed_nodes=[0, 1], show_msg=False):
+        
+        N = C.shape[0]
+        x = np.zeros((N, 2))
+        visited_list = np.zeros(N, dtype=bool)
+        active_list = []
+        
+        visited_list[fixed_nodes] = True
+        visited_list[motor[1]] = True
+        
+        x[fixed_nodes] = x0[fixed_nodes]
+        
+        dx = x0[motor[1],0] - x0[motor[0],0]
+        dy = x0[motor[1],1] - x0[motor[0],1]
+        
+        theta_0 = np.math.atan2(dy,dx)
+        theta = theta_0 + theta
+        
+        x[motor[1], 0] = x[motor[0],0] + G[motor[0],motor[1]] * np.cos(theta)
+        x[motor[1], 1] = x[motor[0],1] + G[motor[0],motor[1]] * np.sin(theta)
+        
+        
+        for l,step in enumerate(path):
+            i = op[l][0]
+            j = op[l][1]
+            k = step
+            
+            l_ij = np.linalg.norm(x[j]-x[i])
+            cosphi = (l_ij**2+G[i,k]**2-G[j,k]**2)/(2*l_ij*G[i,k])
+            if cosphi >= -1.0 and cosphi <= 1.0:
+                phi = op[l][2] * acos(cosphi)
+                R = np.array([[cos(phi), -sin(phi)],
+                              [sin(phi), cos(phi)]])
+                scaled_ij = (x[j]-x[i])/l_ij * G[i,k]
+                x[k] = np.matmul(R, scaled_ij.reshape(2,1)).flatten() + x[i]
+            else:
+                if show_msg:
+                    print('Locking or degenerate linkage!')
+                return np.abs(cosphi)
+        return x
+    
+    def check(self, n_steps, x0, C, motor, fixed_nodes=[0, 1], show_msg=False, lim=[0.0,1.0]):
+        G = self.get_G(x0,C)
+        
+        pop = self.get_path(x0, C, G, motor, fixed_nodes, show_msg)
+        
+        if not pop[0]:
+            if pop[1] == 0:
+                np.zeros([n_steps,C.shape[0],2]), False, True
+            elif pop[1] == -1:
+                np.zeros([n_steps,C.shape[0],2]), True, False
+            elif pop[1] == -2:
+                np.zeros([n_steps,C.shape[0],2]), False, True
+        
+        func = lambda t: self.position_from_path(pop[0],pop[1],t, x0, C, G, motor, fixed_nodes, show_msg)
+        
+        ts = np.linspace(0, 2*np.pi, n_steps)
+        
+        out = []
+        
+        for t in ts:
+            x_temp = func(t)
+            if np.array(x_temp).size == 1:
+                return False
+            else:
+                out.append(x_temp)
+            
+        if np.max(out) <= lim[1] and np.min(out) >= lim[0]:
+            return True
+        else:
+            return False
+    
+    def solve_rev(self, n_steps, x0, C, motor, fixed_nodes=[0, 1], show_msg=False):
+        
+        G = self.get_G(x0,C)
+        
+        pop = self.get_path(x0, C, G, motor, fixed_nodes, show_msg)
+
+        if not pop[0]:
+            return 10
+        
+        func = lambda t: self.position_from_path(pop[0],pop[1],t, x0, C, G, motor, fixed_nodes, show_msg)
+        
+        ts = np.linspace(0, 2*np.pi, n_steps)
+        
+        out = []
+        
+        for t in ts:
+            x_temp = func(t)
+            if np.array(x_temp).size == 1:
+                if x_temp:
+                    return np.zeros([n_steps,C.shape[0],2]), True, False
+                else:
+                    return np.zeros([n_steps,C.shape[0],2]), False, True
+            else:
+                out.append(x_temp)
+        
+        return np.array(out), False, False
+    
+    def material(self,x0, C):
+        G = self.get_G(x0,C)
+        return np.sum(G[np.logical_not(np.isinf(G))])    
+
 def reduce(C,x,fixed_nodes,n):
     
     CC = C[:n+1,:n+1]
@@ -780,3 +981,6 @@ class best(pymoo.util.display.Display):
         lowest = np.min(algorithm.pop.get("F"),0)
         for i in range(lowest.shape[0]):
             self.output.append("Lowest Memeber for Objective %i" % (i), lowest[i])
+            
+def PolyArea(x,y):
+    return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
