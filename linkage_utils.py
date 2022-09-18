@@ -1195,6 +1195,8 @@ def draw_mechanism(A,x0,fixed_nodes,motor, highlight=100, solve=True, thetas = n
     
     A,x0,fixed_nodes,motor = np.array(A),np.array(x0),np.array(fixed_nodes),np.array(motor)
     
+    plt.figure(figsize=(12,12))
+    
     x = x0
     
     N = A.shape[0]
