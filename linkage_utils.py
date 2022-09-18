@@ -1026,9 +1026,9 @@ def find_path(A, motor = [0,1], fixed_nodes=[0, 1]):
 def get_G(x0):
     return (np.linalg.norm(np.tile([x0],[x0.shape[0],1,1]) - np.tile(np.expand_dims(x0,1),[1,x0.shape[0],1]),axis=-1))
 
-@tf.function
-def get_GGpu(x0):
-    return (tf.norm(tf.tile([x0],[x0.shape[0],1,1]) - tf.tile(tf.expand_dims(x0,1),[1,x0.shape[0],1]),axis=-1))
+# @tf.function
+# def get_GGpu(x0):
+#     return (tf.norm(tf.tile([x0],[x0.shape[0],1,1]) - tf.tile(tf.expand_dims(x0,1),[1,x0.shape[0],1]),axis=-1))
 
 
 def solve(path,x0,G,motor,fixed_nodes,theta):
