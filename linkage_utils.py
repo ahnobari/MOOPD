@@ -25,6 +25,10 @@ from sklearn.neighbors import NearestNeighbors
 from scipy.spatial import distance_matrix
 import pickle
 import json
+import xml.etree.ElementTree as etree
+
+from svgpath2mpl import parse_path
+
 
 def chamfer_distance(x, y, metric='l2', direction='bi', subsample=True, n_max=250):
     """Chamfer distance between two point clouds
