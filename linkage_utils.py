@@ -26,7 +26,7 @@ from scipy.spatial import distance_matrix
 import pickle
 import json
 import xml.etree.ElementTree as etree
-
+from io import StringIO
 from svgpath2mpl import parse_path
 
 
